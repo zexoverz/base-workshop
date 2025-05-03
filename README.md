@@ -662,7 +662,7 @@ export default function Home() {
 
 ```
 
-## Adding Final Touches and Testing (20 minutes)
+## Adding Final Touches and Testing 
 
 ### 1. Add CSS Animations
 
@@ -904,6 +904,5 @@ In the next session, we'll enhance our game by adding blockchain integration:
 - Prize pools
 - Smart contract integration
 
-## Q&A (10 minutes)
-
+## Q&A 
 Any questions about what we've covered so far?
