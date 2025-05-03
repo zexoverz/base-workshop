@@ -172,15 +172,13 @@ contract MemoryMatchLeaderboard {
 
 After deploying the contract to Base Sepolia, we'll need its ABI. Create a directory for contract ABIs:
 
+create /app/memoryMatchContract.ts
+
 ```bash
-mkdir -p contracts/abis
-touch contracts/abis/MemoryMatchLeaderboard.json
-```
+import { type Abi } from 'viem';
 
-Add the ABI to `contracts/abis/MemoryMatchLeaderboard.json`:
-
-```json
-[
+// Cast the ABI to the proper Abi type
+export const MEMORY_MATCH_CONTRACT: Abi = [
   {
     "inputs": [],
     "stateMutability": "nonpayable",
@@ -391,7 +389,9 @@ Add the ABI to `contracts/abis/MemoryMatchLeaderboard.json`:
     "stateMutability": "view",
     "type": "function"
   }
-]
+] as const;
+
+export const MEMORY_MATCH_CONTRACT_ADDRESS = "0x6292801F2598D7a24FA99265685bcCD4DcFB0Fc2";
 ```
 
 ### 4. Set Up OnChain Kit Provider
@@ -405,48 +405,54 @@ touch app/providers.tsx
 Add the following to `app/providers.tsx`:
 
 ```typescript
-// app/providers.tsx
-'use client';
+"use client";
 
+import { type ReactNode } from "react";
+import { base, baseSepolia } from "wagmi/chains";
+import { MiniKitProvider } from "@coinbase/onchainkit/minikit";
 import { OnchainKitProvider } from '@coinbase/onchainkit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { PropsWithChildren, useState } from 'react';
+import { createConfig, http, WagmiProvider } from "wagmi";
+import { coinbaseWallet, injected,  } from "wagmi/connectors";
 
-const queryClient = new QueryClient();
 
-export function Providers({ children }: PropsWithChildren) {
+const wagmiConfig = createConfig({
+  chains: [baseSepolia],
+  connectors: [
+    coinbaseWallet({
+      appName: 'onchainkit',
+    }),
+
+  ],
+  ssr: true,
+  transports: {
+    [baseSepolia.id]: http(),
+  },
+});
+
+export function Providers(props: { children: ReactNode }) {
   return (
-    <QueryClientProvider client={queryClient}>
-      <OnchainKitProvider>
-        {children}
-      </OnchainKitProvider>
+    <QueryClientProvider client={new QueryClient()} >
+      <WagmiProvider config={wagmiConfig}> 
+      <MiniKitProvider
+        apiKey={process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY}
+        chain={baseSepolia}
+        config={{
+          appearance: {
+            mode: "auto",
+            theme: "mini-app-theme",
+            name: process.env.NEXT_PUBLIC_ONCHAINKIT_PROJECT_NAME,
+            logo: process.env.NEXT_PUBLIC_ICON_URL,
+          },
+        }}
+        
+      >
+        {props.children}
+      </MiniKitProvider>
+      </WagmiProvider>
     </QueryClientProvider>
-  );
-}
-```
 
-Update your `app/layout.tsx` to use the providers:
-
-```typescript
-// app/layout.tsx
-import { Providers } from './providers';
-import './globals.css';
-import './animations.css';
-import './responsive.css';
-
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <html lang="en">
-      <body>
-        <Providers>
-          {children}
-        </Providers>
-      </body>
-    </html>
+    
   );
 }
 ```
@@ -467,14 +473,15 @@ Add the following to `contexts/BlockchainContext.tsx`:
 
 ```typescript
 // contexts/BlockchainContext.tsx
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useAccount } from 'wagmi';
-import { readContract } from '@wagmi/core';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useAccount, useReadContract, useReadContracts } from 'wagmi';
 import { formatEther } from 'viem';
-import contractABI from '../contracts/abis/MemoryMatchLeaderboard.json';
+import { baseSepolia } from 'viem/chains';
+import { MEMORY_MATCH_CONTRACT, MEMORY_MATCH_CONTRACT_ADDRESS } from '../memoryMatchContract';
 
 // Contract address from environment variables
-const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
+const contractABI = MEMORY_MATCH_CONTRACT
+const contractAddress = MEMORY_MATCH_CONTRACT_ADDRESS
 
 // Types for leaderboard scores
 export type ScoreEntry = {
@@ -505,77 +512,90 @@ export const BlockchainProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [playerBestScore, setPlayerBestScore] = useState(0);
   const [playerRank, setPlayerRank] = useState(0);
   const [topScores, setTopScores] = useState<ScoreEntry[]>([]);
-  const [prizePool, setPrizePool] = useState('0');
   const [isLoading, setIsLoading] = useState(false);
   
-  // Function to fetch contract data
-  const fetchContractData = async () => {
-    if (!isConnected || !address) return;
-    
-    setIsLoading(true);
-    try {
-      // Fetch contract owner
-      const ownerData = await readContract({
-        address: contractAddress,
-        abi: contractABI,
-        functionName: 'owner',
-      });
-      
+  // Read contract owner
+  const { data: ownerData, refetch: refetchOwner } = useReadContract({
+    address: contractAddress,
+    abi: contractABI,
+    functionName: 'owner',
+    chainId: baseSepolia.id,
+  });
+  
+  // Read prize pool
+  const { data: prizePoolData, refetch: refetchPrizePool } = useReadContract({
+    address: contractAddress,
+    abi: contractABI,
+    functionName: 'prizePool',
+    chainId: baseSepolia.id,
+  });
+  
+  // Read top scores
+  const { data: topScoresData, refetch: refetchTopScores } = useReadContract({
+    address: contractAddress,
+    abi: contractABI,
+    functionName: 'getTopScores',
+    chainId: baseSepolia.id,
+  });
+  
+  // Read player best score
+  const { data: playerScoreData, refetch: refetchPlayerScore } = useReadContract({
+    address: contractAddress,
+    abi: contractABI,
+    functionName: 'getPlayerBestScore',
+    args: [address ?? '0x0000000000000000000000000000000000000000'],
+    chainId: baseSepolia.id,
+  });
+  
+  // Check if connected account is the contract owner
+  useEffect(() => {
+    if (address && ownerData) {
       setIsOwner(address.toLowerCase() === (ownerData as string).toLowerCase());
-      
-      // Fetch prize pool
-      const prizePoolData = await readContract({
-        address: contractAddress,
-        abi: contractABI,
-        functionName: 'prizePool',
-      });
-      
-      setPrizePool(formatEther(prizePoolData as bigint));
-      
-      // Fetch top scores
-      const topScoresData = await readContract({
-        address: contractAddress,
-        abi: contractABI,
-        functionName: 'getTopScores',
-      });
-      
+    } else {
+      setIsOwner(false);
+    }
+  }, [address, ownerData]);
+  
+  // Update player score and rank
+  useEffect(() => {
+    if (playerScoreData) {
+      const [score, rank] = playerScoreData as [bigint, bigint];
+      setPlayerBestScore(Number(score));
+      setPlayerRank(Number(rank));
+    }
+  }, [playerScoreData]);
+  
+  // Update top scores
+  useEffect(() => {
+    if (topScoresData) {
       const formattedScores = (topScoresData as any[]).map(entry => ({
         player: entry.player,
         score: Number(entry.score),
         timestamp: Number(entry.timestamp),
       }));
-      
       setTopScores(formattedScores);
-      
-      // Fetch player best score
-      const playerScoreData = await readContract({
-        address: contractAddress,
-        abi: contractABI,
-        functionName: 'getPlayerBestScore',
-        args: [address],
-      });
-      
-      const [score, rank] = playerScoreData as [bigint, bigint];
-      setPlayerBestScore(Number(score));
-      setPlayerRank(Number(rank));
+    }
+  }, [topScoresData]);
+  
+  // Function to refresh all data
+  const refreshData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      await Promise.all([
+        refetchOwner(),
+        refetchPrizePool(),
+        refetchTopScores(),
+        address ? refetchPlayerScore() : Promise.resolve(),
+      ]);
     } catch (error) {
-      console.error('Error fetching contract data:', error);
+      console.error('Error refreshing data:', error);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [refetchOwner, refetchPrizePool, refetchTopScores, refetchPlayerScore, address]);
   
-  // Refresh data function
-  const refreshData = () => {
-    fetchContractData();
-  };
-  
-  // Fetch data on initial load and when address changes
-  useEffect(() => {
-    if (isConnected && address) {
-      fetchContractData();
-    }
-  }, [isConnected, address]);
+  // Format prize pool
+  const prizePool = prizePoolData ? formatEther(prizePoolData as bigint) : '0';
   
   return (
     <BlockchainContext.Provider
@@ -623,7 +643,8 @@ import {
   Wallet,
   ConnectWallet,
   WalletDropdown,
-  WalletDropdownDisconnect
+  WalletDropdownDisconnect,
+  
 } from '@coinbase/onchainkit/wallet';
 import {
   Name,
@@ -639,21 +660,20 @@ const WalletButton: React.FC = () => {
   
   return (
     <div className="flex flex-col items-center">
-      <Wallet className="z-10">
-        <ConnectWallet>
-          <button className="bg-blue-600 text-white px-4 py-2 rounded-md font-medium hover:bg-blue-700 transition-colors">
-            Connect Wallet
-          </button>
-        </ConnectWallet>
-        <WalletDropdown>
-          <Identity className="px-4 pt-3 pb-2" hasCopyAddressOnClick>
-            <Avatar />
-            <Name />
-            <Address />
-            <EthBalance />
-          </Identity>
-          
-          {playerBestScore > 0 && (
+
+<Wallet className="z-10">
+                <ConnectWallet>
+                  <Name className="text-inherit" />
+                </ConnectWallet>
+                <WalletDropdown>
+                  <Identity className="px-4 pt-3 pb-2" hasCopyAddressOnClick>
+                    <Avatar />
+                    <Name />
+                    <Address />
+                    <EthBalance />
+                  </Identity>
+
+                  {playerBestScore > 0 && (
             <div className="px-4 py-2 border-t border-gray-100">
               <div className="text-sm text-gray-600">
                 <span className="font-medium">Best Score:</span> {playerBestScore} pts
@@ -665,10 +685,9 @@ const WalletButton: React.FC = () => {
               )}
             </div>
           )}
-          
-          <WalletDropdownDisconnect />
-        </WalletDropdown>
-      </Wallet>
+                  <WalletDropdownDisconnect />
+                </WalletDropdown>
+              </Wallet>
     </div>
   );
 };
@@ -691,8 +710,9 @@ Add the following to `components/Leaderboard.tsx`:
 import React from 'react';
 import { useBlockchain, ScoreEntry } from '../contexts/BlockchainContext';
 import { Transaction } from '@coinbase/onchainkit/transaction';
-import contractABI from '../contracts/abis/MemoryMatchLeaderboard.json';
 import { baseSepolia } from 'viem/chains';
+import { MEMORY_MATCH_CONTRACT, MEMORY_MATCH_CONTRACT_ADDRESS } from '../memoryMatchContract';
+import { useAccount } from 'wagmi';
 
 // Function to format timestamp
 const formatTimestamp = (timestamp: number) => {
@@ -707,18 +727,10 @@ const formatAddress = (address: string) => {
 
 const Leaderboard: React.FC = () => {
   const { topScores, prizePool, isOwner, refreshData } = useBlockchain();
-  const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
+  const {address} = useAccount();
   
   // Contract calls for awarding prize
-  const awardPrizeCalls = [
-    {
-      address: contractAddress,
-      abi: contractABI,
-      functionName: 'awardPrize',
-      args: [],
-    }
-  ];
-  
+
   return (
     <div className="bg-white p-4 rounded-lg shadow-md w-full max-w-lg">
       <div className="flex justify-between items-center mb-4">
@@ -728,9 +740,16 @@ const Leaderboard: React.FC = () => {
             Prize Pool: {parseFloat(prizePool).toFixed(4)} ETH
           </div>
           
-          {isOwner && parseFloat(prizePool) > 0 && (
+          {address && isOwner && parseFloat(prizePool) > 0 && (
             <Transaction 
-              calls={awardPrizeCalls}
+              calls={[
+                {
+                    address: MEMORY_MATCH_CONTRACT_ADDRESS,
+                    abi: MEMORY_MATCH_CONTRACT,
+                    functionName: 'awardPrize',
+                    args: [],
+                  }
+              ]}
               chainId={baseSepolia.id}
               onStatus={(status) => {
                 if (status.statusName === 'success') {
@@ -801,24 +820,16 @@ import React, { useState } from 'react';
 import { useBlockchain } from '../contexts/BlockchainContext';
 import { Transaction } from '@coinbase/onchainkit/transaction';
 import { parseEther } from 'viem';
-import contractABI from '../contracts/abis/MemoryMatchLeaderboard.json';
 import { baseSepolia } from 'viem/chains';
+import { MEMORY_MATCH_CONTRACT, MEMORY_MATCH_CONTRACT_ADDRESS } from '../memoryMatchContract';
 
 const PrizePoolForm: React.FC = () => {
   const { prizePool, refreshData } = useBlockchain();
   const [amount, setAmount] = useState('0.01');
-  const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
+  const contractAddress = MEMORY_MATCH_CONTRACT_ADDRESS as `0x${string}`;
   
   // Contract calls for contributing to prize pool
-  const getContributeCalls = () => [
-    {
-      address: contractAddress,
-      abi: contractABI,
-      functionName: 'addToPrizePool',
-      args: [],
-      value: parseEther(amount),
-    }
-  ];
+
   
   return (
     <div className="bg-white p-4 rounded-lg shadow-md w-full max-w-lg">
@@ -843,14 +854,20 @@ const PrizePoolForm: React.FC = () => {
             onChange={(e) => setAmount(e.target.value)}
             step="0.001"
             min="0.001"
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="block w-full rounded-md text-blue-600 border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           />
           
           <Transaction 
-            calls={getContributeCalls}
+            calls={[
+                {
+                  address: contractAddress,
+                  abi: MEMORY_MATCH_CONTRACT,
+                  functionName: '0xed88c68e',
+                  args: [],
+                  value: BigInt(parseEther(amount).toString()),
+                }
+              ]}
             chainId={baseSepolia.id}
-            modalTitle="Contribute to Prize Pool"
-            modalDescription={`You are contributing ${amount} ETH to the Memory Match prize pool.`}
             onStatus={(status) => {
               if (status.statusName === 'success') {
                 refreshData();
@@ -882,8 +899,8 @@ import React, { useState } from 'react';
 import { useGame } from '../contexts/GameContext';
 import { useBlockchain } from '../contexts/BlockchainContext';
 import { Transaction } from '@coinbase/onchainkit/transaction';
-import contractABI from '../contracts/abis/MemoryMatchLeaderboard.json';
 import { baseSepolia } from 'viem/chains';
+import { MEMORY_MATCH_CONTRACT, MEMORY_MATCH_CONTRACT_ADDRESS } from '../memoryMatchContract';
 
 const GameComplete: React.FC = () => {
   const { 
@@ -908,7 +925,7 @@ const GameComplete: React.FC = () => {
   const scoreSubmitCalls = [
     {
       address: contractAddress,
-      abi: contractABI,
+      abi: MEMORY_MATCH_CONTRACT,
       functionName: 'submitScore',
       args: [BigInt(score)],
     }
@@ -942,8 +959,7 @@ const GameComplete: React.FC = () => {
             <Transaction 
               calls={scoreSubmitCalls}
               chainId={baseSepolia.id}
-              modalTitle="Submit Score to Leaderboard"
-              modalDescription={`Your score of ${score} points will be submitted to the on-chain leaderboard.`}
+            
               onStatus={(status) => {
                 if (status.statusName === 'success') {
                   setScoreSubmitted(true);
@@ -1252,19 +1268,20 @@ export const useGame = () => {
 Finally, let's update our main app component to include all the blockchain components:
 
 ```typescript
-// app/page.tsx
+// app/page.tsx (update)
 'use client';
-import { useEffect, useState, useCallback } from 'react';
-import { useMiniKit, useAddFrame, useOpenUrl } from '@coinbase/onchainkit/minikit';
+import { useCallback, useEffect, useState } from 'react';
+import { useAddFrame, useMiniKit, useOpenUrl } from '@coinbase/onchainkit/minikit';
 import { GameProvider } from './contexts/GameContext';
-import { BlockchainProvider } from './contexts/BlockchainContext';
 import StartScreen from './components/StartScreen';
 import GameBoard from './components/GameBoard';
 import GameControls from './components/GameControls';
 import GameComplete from './components/GameComplete';
+import GameHistory from './components/GameHistory';
+import WalletButton from './components/WalletButton';
+import { BlockchainProvider } from './contexts/BlockchainContext';
 import Leaderboard from './components/Leaderboard';
 import PrizePoolForm from './components/PrizePoolForm';
-import WalletButton from './components/WalletButton';
 
 export default function Home() {
   const { setFrameReady, isFrameReady, context } = useMiniKit();
@@ -1272,93 +1289,49 @@ export default function Home() {
   const addFrame = useAddFrame();
   const openUrl = useOpenUrl();
   
-  // Initialize the frame
-  useEffect(() => {
-    if (!isFrameReady) {
-      setFrameReady();
-    }
-  }, [setFrameReady, isFrameReady]);
-  
-  const handleAddFrame = useCallback(async () => {
-    const frameAdded = await addFrame();
-    setFrameAdded(Boolean(frameAdded));
-  }, [addFrame]);
-  
-  // Save Frame button
-  const saveFrameButton = context && !context.client.added ? (
-    <button
-      onClick={handleAddFrame}
-      className="text-blue-600 p-2 text-sm font-medium flex items-center gap-1"
-    >
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 5v14M5 12h14"></path>
-      </svg>
-      Save Frame
-    </button>
-  ) : frameAdded ? (
-    <div className="flex items-center space-x-1 text-sm font-medium text-green-600">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M20 6L9 17l-5-5"></path>
-      </svg>
-      <span>Saved</span>
-    </div>
-  ) : null;
+    // Initialize the frame
+    useEffect(() => {
+      if (!isFrameReady) {
+        setFrameReady();
+      }
+    }, [setFrameReady, isFrameReady]);
+
+
   
   return (
     <BlockchainProvider>
       <GameProvider>
-        <main className="flex min-h-screen min-w-screen flex-col items-center p-4 bg-white memory-game-container">
-          {/* Header with wallet connection and save frame button */}
+      <main className="flex min-h-screen min-w-screen flex-col items-center p-4 bg-white  ">
           <div className="w-full flex justify-between items-center mb-4">
             <h1 className="text-xl font-bold text-blue-600">Memory Match</h1>
             <div className="flex items-center gap-2">
-              {saveFrameButton}
               <WalletButton />
             </div>
           </div>
-          
-          {/* Main game components */}
-          <StartScreen />
-          <GameBoard />
-          <GameControls />
-          <GameComplete />
-          
-          {/* On-chain components */}
-          <div className="mt-8 w-full space-y-4">
+        
+        <StartScreen />
+        <GameBoard />
+        <GameControls />
+        <GameComplete />
+        <div className="mt-8 w-full space-y-4">
             <Leaderboard />
             <PrizePoolForm />
           </div>
-          
-          <footer className="mt-8 mb-4 flex items-center justify-center">
-            <button 
-              onClick={() => openUrl('https://base.org/builders/minikit')}
-              className="text-xs opacity-60 px-2 py-1 border border-blue-300 text-blue-600 rounded-full"
-            >
-              BUILT WITH MINIKIT
-            </button>
-          </footer>
-        </main>
-      </GameProvider>
+        
+        <footer className="flex justify-center mt-6">
+          <button 
+            onClick={() => openUrl('https://base.org/builders/minikit')}
+            className="text-xs opacity-60 px-2 py-1 border border-blue-300 text-blue-600 rounded-full"
+          >
+            BUILT WITH MINIKIT
+          </button>
+        </footer>
+      </main>
+    </GameProvider>
     </BlockchainProvider>
   );
 }
 
-## Deploying to Vercel and Testing
-
-Now that we've integrated blockchain functionality into our game, let's deploy it to Vercel for testing.
-
-### 1. Prepare for Deployment
-
-Make sure you have the following environment variables set in your Vercel project:
-
-```bash
-# Contract address
-NEXT_PUBLIC_CONTRACT_ADDRESS=0x1234567890123456789012345678901234567890  # Replace with your contract address
-
-# Farcaster frame configuration
-FARCASTER_HEADER=your_header_here  # From Session 1
-FARCASTER_PAYLOAD=your_payload_here  # From Session 1
-FARCASTER_SIGNATURE=your_signature_here  # From Session 1
 ```
 
 ### 2. Deploy to Vercel
