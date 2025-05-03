@@ -84,6 +84,15 @@ Now, open `contexts/GameContext.tsx` in your editor and add:
 // contexts/GameContext.tsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
+// Define game history type
+type GameHistory = {
+  id: number;
+  date: string;
+  score: number;
+  timeElapsed: number;
+  flips: number;
+};
+
 // Define types
 type Card = {
   id: number;
@@ -100,11 +109,13 @@ interface GameContextType {
   score: number;
   timeElapsed: number;
   flips: number;
+  gameHistory: GameHistory[];
   startGame: () => void;
   pauseGame: () => void;
   resumeGame: () => void;
   resetGame: () => void;
   flipCard: (id: number) => void;
+  clearHistory: () => void;
 }
 
 // Create the context
@@ -118,6 +129,24 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [flips, setFlips] = useState(0);
   const [timer, setTimer] = useState<NodeJS.Timeout | null>(null);
+  const [gameHistory, setGameHistory] = useState<GameHistory[]>([]);
+  
+  // Load game history from localStorage on initial render
+  useEffect(() => {
+    const savedHistory = localStorage.getItem('memoryGameHistory');
+    if (savedHistory) {
+      try {
+        setGameHistory(JSON.parse(savedHistory));
+      } catch (error) {
+        console.error('Error parsing saved game history:', error);
+      }
+    }
+  }, []);
+  
+  // Save game history to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('memoryGameHistory', JSON.stringify(gameHistory));
+  }, [gameHistory]);
   
   // Initialize game with shuffled cards
   const initializeCards = () => {
@@ -183,6 +212,12 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCards([]);
   };
 
+  // Clear game history
+  const clearHistory = () => {
+    setGameHistory([]);
+    localStorage.removeItem('memoryGameHistory');
+  };
+
   // Flip a card
   const flipCard = (id: number) => {
     // Don't allow flips if game is not in playing state
@@ -242,7 +277,19 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Calculate final score based on time and flips
             const timeBonus = Math.max(0, 1000 - timeElapsed * 10);
             const flipsBonus = Math.max(0, 500 - flips * 10);
-            setScore(prev => prev + timeBonus + flipsBonus);
+            const finalScore = score + timeBonus + flipsBonus + 100; // +100 for the last match
+            setScore(finalScore);
+            
+            // Add game to history
+            const newGameRecord: GameHistory = {
+              id: Date.now(),
+              date: new Date().toLocaleString(),
+              score: finalScore,
+              timeElapsed,
+              flips
+            };
+            
+            setGameHistory(prev => [newGameRecord, ...prev].slice(0, 10)); // Keep only last 10 games
           }
         }, 500);
       } else {
@@ -278,11 +325,13 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
         score,
         timeElapsed,
         flips,
+        gameHistory,
         startGame,
         pauseGame,
         resumeGame,
         resetGame,
         flipCard,
+        clearHistory,
       }}
     >
       {children}
@@ -312,7 +361,7 @@ touch components/Card.tsx
 Add the following to `components/Card.tsx`:
 
 ```typescript
-// components/Card.tsx
+// components/Card.tsx (update)
 import React from 'react';
 import { useGame } from '../contexts/GameContext';
 
@@ -336,10 +385,13 @@ const Card: React.FC<CardProps> = ({ card }) => {
     <div
       onClick={handleClick}
       className={`
-        w-16 h-16 rounded-md cursor-pointer transition-all duration-300
+        memory-card
         flex items-center justify-center text-2xl
         ${card.flipped || card.matched ? 'bg-white' : 'bg-blue-600'}
-        ${card.matched ? 'bg-green-100 border-2 border-green-500' : ''}
+        ${card.matched ? 'bg-green-100 border-2 border-green-500 card-matched' : ''}
+        ${card.flipped && !card.matched ? 'card-flip-in' : ''}
+        ${!card.flipped && !card.matched ? 'card-flip-out' : ''}
+        cursor-pointer
       `}
     >
       {(card.flipped || card.matched) && card.value}
@@ -361,7 +413,7 @@ touch components/GameBoard.tsx
 Add the following to `components/GameBoard.tsx`:
 
 ```typescript
-// components/GameBoard.tsx
+// components/GameBoard.tsx (update)
 import React from 'react';
 import { useGame } from '../contexts/GameContext';
 import Card from './Card';
@@ -375,9 +427,9 @@ const GameBoard: React.FC = () => {
   }
   
   return (
-    <div className="flex flex-col items-center">
+    <div className="game-content">
       {/* Game stats */}
-      <div className="w-full flex justify-between mb-4 text-sm">
+      <div className="game-status">
         <div className="bg-blue-100 px-2 py-1 rounded-md">
           <span className="text-blue-800 font-medium">{timeElapsed}s</span>
         </div>
@@ -390,7 +442,7 @@ const GameBoard: React.FC = () => {
       </div>
       
       {/* Card grid */}
-      <div className="grid grid-cols-4 gap-2 w-full max-w-xs">
+      <div className="card-grid">
         {cards.map(card => (
           <Card key={card.id} card={card} />
         ))}
@@ -425,7 +477,7 @@ const StartScreen: React.FC = () => {
   
   return (
     <div className="flex flex-col items-center justify-center p-4">
-      <h1 className="text-2xl font-bold mb-2">Memory Match</h1>
+      <h1 className="text-2xl font-bold mb-2 text-blue-600">Memory Match</h1>
       <p className="text-gray-600 text-center mb-6">
         Find matching pairs of cards to win!
       </p>
@@ -476,12 +528,12 @@ const GameComplete: React.FC = () => {
         <p className="text-4xl font-bold text-blue-600 mb-4">{score} pts</p>
         
         <div className="grid grid-cols-2 gap-2 mb-4">
-          <div className="bg-gray-100 p-2 rounded">
-            <p className="text-xs text-gray-600">Time</p>
+          <div className="bg-blue-600 p-2 rounded">
+            <p className="text-xs text-gray-100">Time</p>
             <p className="font-medium">{timeElapsed}s</p>
           </div>
-          <div className="bg-gray-100 p-2 rounded">
-            <p className="text-xs text-gray-600">Flips</p>
+          <div className="bg-blue-600 p-2 rounded">
+            <p className="text-xs text-gray-100">Flips</p>
             <p className="font-medium">{flips}</p>
           </div>
         </div>
@@ -560,15 +612,16 @@ Now, let's update the main page to use our components:
 Open `app/page.tsx` and replace its contents with:
 
 ```typescript
-// app/page.tsx
+// app/page.tsx (update)
 'use client';
 import { useEffect } from 'react';
 import { useMiniKit, useOpenUrl } from '@coinbase/onchainkit/minikit';
-import { GameProvider } from '../contexts/GameContext';
-import StartScreen from '../components/StartScreen';
-import GameBoard from '../components/GameBoard';
-import GameControls from '../components/GameControls';
-import GameComplete from '../components/GameComplete';
+import { GameProvider } from './contexts/GameContext';
+import StartScreen from './components/StartScreen';
+import GameBoard from './components/GameBoard';
+import GameControls from './components/GameControls';
+import GameComplete from './components/GameComplete';
+import GameHistory from './components/GameHistory';
 
 export default function Home() {
   const { setFrameReady, isFrameReady } = useMiniKit();
@@ -583,16 +636,17 @@ export default function Home() {
   
   return (
     <GameProvider>
-      <main className="flex min-h-screen flex-col items-center p-4">
+      <main className="flex min-h-screen min-w-screen flex-col items-center p-4 bg-white memory-game-container ">
         <StartScreen />
         <GameBoard />
         <GameControls />
         <GameComplete />
+        <GameHistory />
         
-        <footer className="mt-auto pt-6">
+        <footer className="mt-auto ">
           <button 
             onClick={() => openUrl('https://base.org/builders/minikit')}
-            className="text-xs opacity-60 px-2 py-1 border border-gray-300 rounded-full"
+            className="text-xs opacity-60 px-2 py-1 border border-blue-300 text-blue-600 rounded-full"
           >
             BUILT WITH MINIKIT
           </button>
@@ -601,6 +655,7 @@ export default function Home() {
     </GameProvider>
   );
 }
+
 ```
 
 ## Adding Final Touches and Testing (20 minutes)
@@ -660,57 +715,120 @@ Add the following CSS:
 }
 ```
 
-### 2. Import the CSS in Layout.tsx
+
+### 2. Add Responsive layout
+
+Let's add some responsive css, Create a new file:
+
+```bash
+touch app/responsive.css
+```
+
+Add the following CSS:
+
+```
+/* app/responsive.css */
+/* Main container responsive rules */
+.memory-game-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center; /* Center vertically */
+    min-height: 100vh; /* Use full viewport height */
+    padding: 1rem;
+    width: 100%;
+    max-width: 520px;
+    margin: 0 auto;
+  }
+  
+  /* Game header styling */
+  .game-header {
+    width: 100%;
+    margin-bottom: 1rem;
+    text-align: center;
+  }
+  
+  /* Game content area */
+  .game-content {
+    width: 100%;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+  }
+  
+  /* Card grid container */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.5rem;
+    width: 100%;
+    max-width: 400px;
+    margin: 0 auto;
+  }
+  
+  /* Card styling */
+  .memory-card {
+    aspect-ratio: 1/1; /* Keep cards square */
+    width: 100%;
+    border-radius: 0.5rem;
+    transition: all 0.3s ease;
+  }
+  
+  /* Game status bar */
+  .game-status {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    max-width: 400px;
+    margin-bottom: 0.5rem;
+  }
+  
+  /* Footer positioning */
+  .game-footer {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+  
+  /* Ensure proper modal centering */
+  .modal-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+  }
+  
+  /* Media query for very small screens */
+  @media (max-height: 600px) {
+    .card-grid {
+      gap: 0.25rem;
+    }
+    
+    .memory-card {
+      border-radius: 0.25rem;
+    }
+  }
+  
+  /* Media query for larger screens */
+  @media (min-height: 800px) {
+    .game-content {
+      gap: 2rem;
+    }
+  }
+```
+
+### 3. Import the CSS in Layout.tsx
 
 Open `app/layout.tsx` and add the import:
 
 ```typescript
-import './animations.css';
-```
-
-### 3. Update Card.tsx to Use Animations
-
-Update the Card component to include animations:
-
-```typescript
-// components/Card.tsx (updated)
-import React from 'react';
-import { useGame } from '../contexts/GameContext';
-
-interface CardProps {
-  card: {
-    id: number;
-    value: string;
-    flipped: boolean;
-    matched: boolean;
-  };
-}
-
-const Card: React.FC<CardProps> = ({ card }) => {
-  const { flipCard } = useGame();
-  
-  const handleClick = () => {
-    flipCard(card.id);
-  };
-  
-  return (
-    <div
-      onClick={handleClick}
-      className={`
-        w-16 h-16 rounded-md cursor-pointer
-        flex items-center justify-center text-2xl
-        ${card.flipped || card.matched ? 'bg-white' : 'bg-blue-600'}
-        ${card.matched ? 'bg-green-100 border-2 border-green-500 card-matched' : ''}
-        ${card.flipped && !card.matched ? 'card-flip-in' : ''}
-        ${!card.flipped && !card.matched ? 'card-flip-out' : ''}
-      `}
-    >
-      {(card.flipped || card.matched) && card.value}
-    </div>
-  );
-};
-
-export default Card;
+import './animation.css';
+import './responsive.css';
 ```
 
 ### 4. Test the Game
@@ -722,76 +840,36 @@ Now, let's test our game:
 3. Play the game to check if everything works properly
 4. Test the game on different screen sizes to ensure responsive design
 
-## Preparing for Farcaster Integration (10 minutes)
+## Preparing for Farcaster Integration 
 
 ### 1. Configuring the Manifest
 
 To make our game available on Farcaster, we need to set up a frame manifest:
 
 ```bash
-npx minikit-cli manifest
+npx create-onchain --manifest
 ```
 
-Follow the prompts to set up your manifest. You'll need to:
-1. Provide your deployed URL (once you've deployed your app)
-2. Connect your Farcaster custody wallet
+The wallet that you connect must be your Farcaster custody wallet. You can import this wallet to your prefered wallet using the recovery phrase. You can find your recovery phrase in the Warpcast app under Settings -> Advanced -> Farcster recovery phrase.
 
-### 2. Setting Up Notifications (Optional)
+Once connected, add the vercel url and sign the manifest. This will automatically update your .env variables locally, but we'll need to update Vercel's .env variables.
 
-If you want to add notifications when a player completes the game:
+Create the following new .env variables in your vercel instance and paste the value you see in your local.env file
 
-```typescript
-// In components/GameComplete.tsx
-import { useSendNotification } from '@coinbase/onchainkit/minikit';
+- FARCASTER_HEADER
+- FARCASTER_PAYLOAD
+- FARCASTER_SIGNATURE
 
-// Inside the component
-const sendNotification = useSendNotification();
+Now that the manifest is correctly set up, the Save Frame button in the template app should work. We'll explore that below.
 
-// When the game completes
-useEffect(() => {
-  if (gameState === 'completed') {
-    sendNotification({
-      title: 'Memory Match Challenge',
-      body: `You scored ${score} points in the Memory Match Challenge!`,
-      url: window.location.href,
-    }).catch(error => {
-      console.error('Failed to send notification:', error);
-    });
-  }
-}, [gameState, score]);
-```
+You can now test your mini app:
 
-## Deploying Your Mini App (10 minutes)
+- Copy your deployed vercel URL
+- Visit Warpcast Frames Developer Tools on web or mobile
+- Paste URL into "Preview Frames"
+- Tap Launch
 
-Let's deploy our app to make it available on Farcaster:
-
-### 1. GitHub Integration
-
-1. Create a new GitHub repository
-2. Push your code to GitHub:
-```bash
-git add .
-git commit -m "Create Memory Match Mini App"
-git remote add origin YOUR_GITHUB_REPO_URL
-git push -u origin main
-```
-
-### 2. Deploy on Vercel
-
-1. Go to [Vercel](https://vercel.com/)
-2. Connect your GitHub repository
-3. Configure environment variables (if needed)
-4. Deploy the app
-
-### 3. Configure Manifest with Deployed URL
-
-Once deployed, update your manifest with the deployed URL:
-
-```bash
-npx minikit-cli manifest
-```
-
-## Conclusion and Next Steps (10 minutes)
+## Conclusion and Next Steps 
 
 Congratulations! You've built a complete Memory Match game using Base MiniKit. Let's recap what we've learned:
 
