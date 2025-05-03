@@ -852,6 +852,10 @@ npx create-onchain --manifest
 
 The wallet that you connect must be your Farcaster custody wallet. You can import this wallet to your prefered wallet using the recovery phrase. You can find your recovery phrase in the Warpcast app under Settings -> Advanced -> Farcster recovery phrase.
 
+if you didnt have FID custody wallet connected, please find your private key using this youtube video:
+
+https://www.youtube.com/watch?v=lkM8msdTCtY
+
 Once connected, add the vercel url and sign the manifest. This will automatically update your .env variables locally, but we'll need to update Vercel's .env variables.
 
 Create the following new .env variables in your vercel instance and paste the value you see in your local.env file
