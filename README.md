@@ -856,6 +856,13 @@ if you didnt have FID custody wallet connected, please find your private key usi
 
 https://www.youtube.com/watch?v=lkM8msdTCtY
 
+
+![image](https://github.com/user-attachments/assets/562d53cf-11b6-49bb-919b-2c56f95fe0d3)
+
+bip39 : https://github.com/iancoleman/bip39/releases
+
+
+
 Once connected, add the vercel url and sign the manifest. This will automatically update your .env variables locally, but we'll need to update Vercel's .env variables.
 
 Create the following new .env variables in your vercel instance and paste the value you see in your local.env file
