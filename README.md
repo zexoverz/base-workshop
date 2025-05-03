@@ -65,7 +65,7 @@ You can now test your mini app:
 
 
 
-## Building the Core Game (45 minutes)
+## Building the Core Game 
 
 Now, let's build the core components of our Memory Match game.
 
