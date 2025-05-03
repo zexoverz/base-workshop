@@ -567,7 +567,7 @@ touch components/GameControls.tsx
 Add the following to `components/GameControls.tsx`:
 
 ```typescript
-// components/GameControls.tsx
+// components/GameControls.tsx (update)
 import React from 'react';
 import { usePrimaryButton } from '@coinbase/onchainkit/minikit';
 import { useGame } from '../contexts/GameContext';
@@ -599,7 +599,11 @@ const GameControls: React.FC = () => {
     }
   );
   
-  return null; // This component only handles the primary button
+  return (
+    < >
+    
+    </>
+  );
 };
 
 export default GameControls;
