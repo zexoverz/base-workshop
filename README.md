@@ -16,17 +16,19 @@ Welcome to our hands-on workshop on building interactive Mini Apps using Base Mi
 - A Farcaster account (for testing)
 - Coinbase Developer Platform account (for CDP API key)
 
-## Setup (15 minutes)
+## Setup 
 
 Let's start by setting up our development environment and creating a new MiniKit project.
 
-### 1. Install MiniKit CLI
+### 1. Create a new MiniKit project using the CLI
 
 ```bash
-npm install -g @coinbase/minikit-cli
+npx create-onchain --mini
 ```
 
-### 2. Create a New Project
+### 2. When prompted, enter your CDP Client API key.
+
+You can get a CDP API key by going to the [CDP Portal](portal.cdp.coinbase.com) and navigating API Keys -> Client API Key.
 
 ```bash
 npx @coinbase/create-minikit-app memory-match
@@ -34,25 +36,34 @@ npx @coinbase/create-minikit-app memory-match
 
 Follow the prompts to set up your project. When asked about which template to use, select the basic template.
 
-### 3. Navigate to Your Project
+### 3. Skip Frames Account Manifest Setup
+
+You will be asked if you'd like to set up your manifest. You can skip the manifest setup step as we'll handle that separately once we know our project's URL.
+
+### 4. Navigate to your project directory and install dependencies
 
 ```bash
 cd memory-match
-```
-
-### 4. Install Additional Dependencies
-
-```bash
 npm install
-```
-
-### 5. Start the Development Server
-
-```bash
 npm run dev
 ```
 
-This will start your application at http://localhost:3000.
+### 5. Testing Your Mini App
+
+To test your Mini App in Warpcast, you'll need a live URL.
+
+We recommend using [Vercel](https://vercel.com/)to deploy your MiniKit app, as it integrates seamlessly with the upstash/redis backend required for stateful frames, webhooks, and notifications.
+
+Alternatively, you can use [ngrok](https://ngrok.com/docs/getting-started/) to tunnel your localhost to a live url.
+
+You can now test your mini app:
+
+- Copy your deployed vercel URL
+- Visit Warpcast Frames Developer Tools on web or mobile
+- Paste URL into "Preview Frames"
+- Tap Launch
+
+
 
 ## Building the Core Game (45 minutes)
 
