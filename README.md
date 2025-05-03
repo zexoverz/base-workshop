@@ -14,7 +14,7 @@ Welcome to our hands-on workshop on building interactive Mini Apps using Base Mi
 - Node.js installed (v18+ recommended)
 - Basic knowledge of React and TypeScript
 - A Farcaster account (for testing)
-- Coinbase Developer Platform account (for CDP API key)
+- Coinbase Developer Platform account (for CDP API key optional)
 
 ## Setup 
 
