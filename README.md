@@ -1,6 +1,6 @@
 # Workshop Session 1: Building Memory Match Game with Base MiniKit
 
-## Introduction (10 minutes)
+## Introduction
 
 Welcome to our hands-on workshop on building interactive Mini Apps using Base MiniKit! In this session, we'll build a fun Memory Match game that demonstrates the power and flexibility of MiniKit for creating engaging experiences within Farcaster Frames.
 
