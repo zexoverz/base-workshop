@@ -880,6 +880,12 @@ You can now test your mini app:
 - Paste URL into "Preview Frames"
 - Tap Launch
 
+
+<img src="https://github.com/user-attachments/assets/c9f9542c-096c-4e95-aef8-71045a5d6cd3" width="400" height="800" />
+
+<img src="https://github.com/user-attachments/assets/903b416e-f54f-4b88-91ab-cd675e5978eb" width="400" height="800" />
+
+
 ## Conclusion and Next Steps 
 
 Congratulations! You've built a complete Memory Match game using Base MiniKit. Let's recap what we've learned:
