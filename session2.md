@@ -1145,6 +1145,7 @@ const GameComplete: React.FC = () => {
         <div className="flex flex-col gap-2">
           {!scoreSubmitted && address && (
             <Transaction 
+             isSponsored={true}
               calls={scoreSubmitCalls}
               chainId={baseSepolia.id}
             
