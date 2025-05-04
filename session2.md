@@ -1099,7 +1099,6 @@ const GameComplete: React.FC = () => {
   const { address, refreshData } = useBlockchain();
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
 
-  const { writeContractAsync } = useWriteContract()
   const {isConnected} = useAccount()
   
   
