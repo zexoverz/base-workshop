@@ -22,7 +22,7 @@ Welcome to the second session of our MiniKit workshop! Today, we'll build upon o
 
 Let's start by setting up our development environment for blockchain integration.
 
-### 1. Install OnChain Kit Dependencies and set up config
+### 1. Install OnChain Kit Dependencies 
 
 First, let's add the necessary dependencies for blockchain integration:
 
@@ -31,20 +31,6 @@ cd memory-match
 npm install @coinbase/onchainkit @tanstack/react-query viem wagmi react-hot-toast
 ```
 
-
-config/index.ts
-
-```typescript
-import { baseSepolia } from "viem/chains";
-import { createConfig, http } from "wagmi";
-
-export const config = createConfig({
-    chains: [baseSepolia],
-    transports: {
-      [baseSepolia.id]: http(),
-    },
-})
-```
 
 ### 2. Create a Smart Contract for Leaderboard and Prize Pool
 
@@ -727,9 +713,10 @@ import { useBlockchain, ScoreEntry } from '../contexts/BlockchainContext';
 import { Transaction } from '@coinbase/onchainkit/transaction';
 import { baseSepolia } from 'viem/chains';
 import { MEMORY_MATCH_CONTRACT, MEMORY_MATCH_CONTRACT_ADDRESS } from '../memoryMatchContract';
-import { useAccount, useWriteContract } from 'wagmi';
+import { useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { waitForTransactionReceipt } from 'wagmi/actions';
-import { config } from '../config';
+import { wagmiConfig } from '../providers';
+import toast from 'react-hot-toast';
 
 // Function to format timestamp
 const formatTimestamp = (timestamp: number) => {
@@ -744,35 +731,87 @@ const formatAddress = (address: string) => {
 
 const Leaderboard: React.FC = () => {
   const { topScores, prizePool, isOwner, refreshData } = useBlockchain();
-  const {address} = useAccount();
+  const {address, isConnected} = useAccount();
 
-  const { writeContractAsync } = useWriteContract()
-
-
-      const handleAwardPrize = async () => {
-        const result = await writeContractAsync(
-          {
-            address: MEMORY_MATCH_CONTRACT_ADDRESS,
-                  abi: MEMORY_MATCH_CONTRACT,
-                  functionName: 'awardPrize',
-                  args: [],
-          }
-        );
-    
-        await waitForTransactionReceipt(config, {
-          hash: result as `0x${string}`,
-        })
-          .then(async () => {
-            await refreshData()
-          })
-          .catch(() => {
-            console.log("Transaction failed");
-          });
+   const { 
+      data: hash, 
+      isPending, 
+      isError,
+      error,
+      writeContract 
+    } = useWriteContract();
+  
+    // Track transaction receipt
+    const { 
+      isLoading: isConfirming, 
+      isSuccess: isConfirmed 
+    } = useWaitForTransactionReceipt({ 
+      hash,
+    });
+  
+    // Handle contribution
+    const handleAwardPrize = () => {
+  
+      if (!isConnected) return
+      
+      toast.loading('Preparing transaction...', {
+        style: {
+          background: "#2B2F36",
+          color: "#fff",
+        },
+      });
+  
+      writeContract({
+        address: MEMORY_MATCH_CONTRACT_ADDRESS,
+        abi: MEMORY_MATCH_CONTRACT,
+        functionName: 'awardPrize',
+        args: [],
+      });
+    };
+  
+    // Show appropriate toast based on transaction state
+    React.useEffect(() => {
+      if (isPending) {
+        toast.loading('Awaiting wallet confirmation...', {
+          id: 'tx-pending',
+          style: {
+            background: "#2B2F36",
+            color: "#fff",
+          },
+        });
       }
-    
+      
+      if (isConfirming) {
+        toast.loading('Transaction processing...', {
+          id: 'tx-confirming',
+          style: {
+            background: "#2B2F36",
+            color: "#fff",
+          },
+        });
+      }
   
+      if (isConfirmed) {
+        toast.dismiss();
+        toast.success('Prize successfully releases!', {
+          style: {
+            background: "#0057ee",
+            color: "#fff",
+          },
+        });
+        refreshData();
+      }
   
-  // Contract calls for awarding prize
+      if (isError) {
+        toast.dismiss();
+        toast.error('Failed to release prize pool', {
+          style: {
+            background: "#0057ee",
+            color: "#fff",
+          },
+        });
+      }
+    }, [isPending, isConfirming, isConfirmed, isError, refreshData]);
 
   return (
     <div className="bg-white p-4 rounded-lg shadow-md w-full max-w-lg">
@@ -868,47 +907,103 @@ Add the following to `components/PrizePoolForm.tsx`:
 
 ```typescript
 // components/PrizePoolForm.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useBlockchain } from '../contexts/BlockchainContext';
-import { Transaction } from '@coinbase/onchainkit/transaction';
 import { parseEther } from 'viem';
 import { baseSepolia } from 'viem/chains';
 import { MEMORY_MATCH_CONTRACT, MEMORY_MATCH_CONTRACT_ADDRESS } from '../memoryMatchContract';
-import { useWriteContract } from 'wagmi';
-import { waitForTransactionReceipt } from 'wagmi/actions';
-import { config } from '../config';
+import { useWriteContract, useWaitForTransactionReceipt, useAccount } from 'wagmi';
+import toast from 'react-hot-toast';
 
 const PrizePoolForm: React.FC = () => {
   const { prizePool, refreshData } = useBlockchain();
+  const {isConnected} = useAccount()
   const [amount, setAmount] = useState('0.01');
   const contractAddress = MEMORY_MATCH_CONTRACT_ADDRESS as `0x${string}`;
 
-  const { writeContractAsync } = useWriteContract()
+  // Use wagmi hooks directly
+  const { 
+    data: hash, 
+    isPending, 
+    isError,
+    error,
+    writeContract 
+  } = useWriteContract();
 
-  const handleContribute = async () => {
-          const result = await writeContractAsync(
-            {
-              address: contractAddress,
-                abi: MEMORY_MATCH_CONTRACT,
-                functionName: 'addToPrizePool',
-                args: [],
-                value: BigInt(parseEther(amount).toString()),
-            }
-          );
-      
-          await waitForTransactionReceipt(config, {
-            hash: result as `0x${string}`,
-          })
-            .then(async () => {
-              await refreshData()
-            })
-            .catch(() => {
-              console.log("Transaction failed");
-            });
-        }
-  // Contract calls for contributing to prize pool
+  // Track transaction receipt
+  const { 
+    isLoading: isConfirming, 
+    isSuccess: isConfirmed 
+  } = useWaitForTransactionReceipt({ 
+    hash,
+  });
 
-  
+  // Handle contribution
+  const handleContribute = () => {
+    if (parseFloat(amount) <= 0) return;
+
+    if (!isConnected) return
+    
+    toast.loading('Preparing transaction...', {
+      style: {
+        background: "#2B2F36",
+        color: "#fff",
+      },
+    });
+
+    writeContract({
+      address: contractAddress,
+      abi: MEMORY_MATCH_CONTRACT,
+      functionName: 'addToPrizePool',
+      args: [],
+      value: parseEther(amount),
+    });
+  };
+
+  // Show appropriate toast based on transaction state
+  React.useEffect(() => {
+    if (isPending) {
+      toast.loading('Awaiting wallet confirmation...', {
+        id: 'tx-pending',
+        style: {
+          background: "#2B2F36",
+          color: "#fff",
+        },
+      });
+    }
+    
+    if (isConfirming) {
+      toast.loading('Transaction processing...', {
+        id: 'tx-confirming',
+        style: {
+          background: "#2B2F36",
+          color: "#fff",
+        },
+      });
+    }
+
+    if (isConfirmed) {
+      toast.dismiss();
+      toast.success('Prize successfully added!', {
+        style: {
+          background: "#0057ee",
+          color: "#fff",
+        },
+      });
+      refreshData();
+    }
+
+    if (isError) {
+      toast.dismiss();
+      toast.error('Failed to add prize pool', {
+        style: {
+          background: "#0057ee",
+          color: "#fff",
+        },
+      });
+    }
+  }, [isPending, isConfirming, isConfirmed, isError, refreshData]);
+
   return (
     <div className="bg-white p-4 rounded-lg shadow-md w-full max-w-lg">
       <h2 className="text-xl font-bold text-blue-600 mb-4">Contribute to Prize Pool</h2>
@@ -936,33 +1031,33 @@ const PrizePoolForm: React.FC = () => {
           />
           
           <button
-            onClick={() => {
-              handleContribute();
-            }}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+            onClick={handleContribute}
+            disabled={isPending || isConfirming}
+            className={`bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded ${
+              (isPending || isConfirming) ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
           >
-            Contribute
+            {isPending ? 'Confirming...' : isConfirming ? 'Processing...' : 'Contribute'}
           </button>
-          {/* {hash && <div>Transaction Hash: {hash}</div>} */}
-
-          {/* <Transaction 
-            calls={[
-                {
-                  address: contractAddress,
-                  abi: MEMORY_MATCH_CONTRACT,
-                functionName: 'addToPrizePool',
-                  args: [],
-                  value: BigInt(parseEther(amount).toString()),
-                }
-              ]}
-            chainId={baseSepolia.id}
-            onStatus={(status) => {
-              if (status.statusName === 'success') {
-                refreshData();
-              }
-            }}
-          /> */}
         </div>
+
+        {(isPending || isConfirming) && (
+          <div className="mt-2 text-sm text-blue-600">
+            {isPending ? 'Please confirm the transaction in your wallet...' : 'Transaction is being processed...'}
+          </div>
+        )}
+
+        {isConfirmed && hash && (
+          <div className="mt-2 text-sm text-green-600">
+            Transaction successful!
+          </div>
+        )}
+
+        {isError && (
+          <div className="mt-2 text-sm text-red-600">
+            {error.message}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -989,9 +1084,8 @@ import { useBlockchain } from '../contexts/BlockchainContext';
 import { Transaction } from '@coinbase/onchainkit/transaction';
 import { baseSepolia } from 'viem/chains';
 import { MEMORY_MATCH_CONTRACT, MEMORY_MATCH_CONTRACT_ADDRESS } from '../memoryMatchContract';
-import { useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
-import { waitForTransactionReceipt } from "@wagmi/core";
-import { config } from '../config';
+import {  useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
+import toast from 'react-hot-toast';
 
 const GameComplete: React.FC = () => {
   const { 
@@ -1005,14 +1099,9 @@ const GameComplete: React.FC = () => {
   const { address, refreshData } = useBlockchain();
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
 
-
-  const { data: hash, writeContract, isSuccess, writeContractAsync } = useWriteContract()
-  const result = useWaitForTransactionReceipt({
-    hash: hash,
-  })
+  const { writeContractAsync } = useWriteContract()
+  const {isConnected} = useAccount()
   
-  
-  const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
   
   // Only show when game is completed
   if (gameState !== 'completed') {
@@ -1022,34 +1111,93 @@ const GameComplete: React.FC = () => {
   // Contract calls for submitting score
   const scoreSubmitCalls = [
     {
-      address: contractAddress,
+      address: MEMORY_MATCH_CONTRACT_ADDRESS,
       abi: MEMORY_MATCH_CONTRACT,
       functionName: 'submitScore',
       args: [BigInt(score)],
     }
   ];
 
-  const handleSubmitScore = async () => {
-    const result = await writeContractAsync(
-      {
-        address: contractAddress,
+    // Use wagmi hooks directly
+    const { 
+      data: hash, 
+      isPending, 
+      isError,
+      error,
+      writeContract 
+    } = useWriteContract();
+  
+    // Track transaction receipt
+    const { 
+      isLoading: isConfirming, 
+      isSuccess: isConfirmed 
+    } = useWaitForTransactionReceipt({ 
+      hash,
+    });
+  
+    // Handle contribution
+    const handleSubmitScore = () => {  
+      if (!isConnected) return
+      
+      toast.loading('Preparing transaction...', {
+        style: {
+          background: "#2B2F36",
+          color: "#fff",
+        },
+      });
+  
+      writeContract({
+        address: MEMORY_MATCH_CONTRACT_ADDRESS,
         abi: MEMORY_MATCH_CONTRACT,
         functionName: 'submitScore',
         args: [BigInt(score)],
-      }
-    );
-
-    await waitForTransactionReceipt(config, {
-      hash: result as `0x${string}`,
-    })
-      .then(async () => {
-        await refreshData()
-      })
-      .catch(() => {
-        console.log("Transaction failed");
       });
+    };
 
-  }
+  React.useEffect(() => {
+    if (isPending) {
+      toast.loading('Awaiting wallet confirmation...', {
+        id: 'tx-pending',
+        style: {
+          background: "#2B2F36",
+          color: "#fff",
+        },
+      });
+    }
+    
+    if (isConfirming) {
+      toast.loading('Transaction processing...', {
+        id: 'tx-confirming',
+        style: {
+          background: "#2B2F36",
+          color: "#fff",
+        },
+      });
+    }
+
+    if (isConfirmed) {
+      toast.dismiss();
+      toast.success('Score successfully added!', {
+        style: {
+          background: "#0057ee",
+          color: "#fff",
+        },
+      });
+      setScoreSubmitted(true);
+      refreshData();
+    }
+
+    if (isError) {
+      toast.dismiss();
+      toast.error('Failed to add score', {
+        style: {
+          background: "#0057ee",
+          color: "#fff",
+        },
+      });
+    }
+  }, [isPending, isConfirming, isConfirmed, isError, refreshData]);
+
 
 
   
@@ -1103,6 +1251,24 @@ const GameComplete: React.FC = () => {
               Score submitted to leaderboard! 🎉
             </div>
           )}
+
+        {(isPending || isConfirming) && (
+                  <div className="mt-2 text-sm text-blue-600">
+                    {isPending ? 'Please confirm the transaction in your wallet...' : 'Transaction is being processed...'}
+                  </div>
+                )}
+
+                {isConfirmed && hash && (
+                  <div className="mt-2 text-sm text-green-600">
+                    Transaction successful!
+                  </div>
+                )}
+
+                {isError && (
+                  <div className="mt-2 text-sm text-red-600">
+                    {error.message}
+                  </div>
+                )}
           
           <button
             onClick={resetGame}
@@ -1411,6 +1577,7 @@ import WalletButton from './components/WalletButton';
 import { BlockchainProvider } from './contexts/BlockchainContext';
 import Leaderboard from './components/Leaderboard';
 import PrizePoolForm from './components/PrizePoolForm';
+import { Toaster } from 'react-hot-toast';
 
 export default function Home() {
   const { setFrameReady, isFrameReady, context } = useMiniKit();
@@ -1430,6 +1597,7 @@ export default function Home() {
   return (
     <BlockchainProvider>
       <GameProvider>
+      <Toaster />
       <main className="flex min-h-screen min-w-screen flex-col items-center p-4 bg-white  ">
           <div className="w-full flex justify-between items-center mb-4">
             <h1 className="text-xl font-bold text-blue-600">Memory Match</h1>
@@ -1442,10 +1610,10 @@ export default function Home() {
         <GameBoard />
         <GameControls />
         <GameComplete />
-        <div className="mt-8 w-full space-y-4">
+        <div className="mt-8 w-full space-y-4 flex flex-col justify-center items-center">
             <Leaderboard />
             <PrizePoolForm />
-          </div>
+        </div>
         
         <footer className="flex justify-center mt-6">
           <button 
@@ -1460,7 +1628,6 @@ export default function Home() {
     </BlockchainProvider>
   );
 }
-
 ```
 
 ### 2. Deploy to Vercel
