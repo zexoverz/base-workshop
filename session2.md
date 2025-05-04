@@ -22,13 +22,28 @@ Welcome to the second session of our MiniKit workshop! Today, we'll build upon o
 
 Let's start by setting up our development environment for blockchain integration.
 
-### 1. Install OnChain Kit Dependencies
+### 1. Install OnChain Kit Dependencies and set up config
 
 First, let's add the necessary dependencies for blockchain integration:
 
 ```bash
 cd memory-match
 npm install @coinbase/onchainkit @tanstack/react-query viem wagmi
+```
+
+
+config/index.ts
+
+```typescript
+import { baseSepolia } from "viem/chains";
+import { createConfig, http } from "wagmi";
+
+export const config = createConfig({
+    chains: [baseSepolia],
+    transports: {
+      [baseSepolia.id]: http(),
+    },
+})
 ```
 
 ### 2. Create a Smart Contract for Leaderboard and Prize Pool
@@ -707,12 +722,14 @@ Add the following to `components/Leaderboard.tsx`:
 
 ```typescript
 // components/Leaderboard.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useBlockchain, ScoreEntry } from '../contexts/BlockchainContext';
 import { Transaction } from '@coinbase/onchainkit/transaction';
 import { baseSepolia } from 'viem/chains';
 import { MEMORY_MATCH_CONTRACT, MEMORY_MATCH_CONTRACT_ADDRESS } from '../memoryMatchContract';
-import { useAccount } from 'wagmi';
+import { useAccount, useWriteContract } from 'wagmi';
+import { waitForTransactionReceipt } from 'wagmi/actions';
+import { config } from '../config';
 
 // Function to format timestamp
 const formatTimestamp = (timestamp: number) => {
@@ -728,6 +745,32 @@ const formatAddress = (address: string) => {
 const Leaderboard: React.FC = () => {
   const { topScores, prizePool, isOwner, refreshData } = useBlockchain();
   const {address} = useAccount();
+
+  const { writeContractAsync } = useWriteContract()
+
+
+      const handleAwardPrize = async () => {
+        const result = await writeContractAsync(
+          {
+            address: MEMORY_MATCH_CONTRACT_ADDRESS,
+                  abi: MEMORY_MATCH_CONTRACT,
+                  functionName: 'awardPrize',
+                  args: [],
+          }
+        );
+    
+        await waitForTransactionReceipt(config, {
+          hash: result as `0x${string}`,
+        })
+          .then(async () => {
+            await refreshData()
+          })
+          .catch(() => {
+            console.log("Transaction failed");
+          });
+      }
+    
+  
   
   // Contract calls for awarding prize
 
@@ -741,22 +784,31 @@ const Leaderboard: React.FC = () => {
           </div>
           
           {address && isOwner && parseFloat(prizePool) > 0 && (
-            <Transaction 
-              calls={[
-                {
-                    address: MEMORY_MATCH_CONTRACT_ADDRESS,
-                    abi: MEMORY_MATCH_CONTRACT,
-                    functionName: 'awardPrize',
-                    args: [],
-                  }
-              ]}
-              chainId={baseSepolia.id}
-              onStatus={(status) => {
-                if (status.statusName === 'success') {
-                  refreshData();
-                }
+            // <Transaction 
+            //   calls={[
+            //     {
+            //         address: MEMORY_MATCH_CONTRACT_ADDRESS,
+            //         abi: MEMORY_MATCH_CONTRACT,
+            //         functionName: 'awardPrize',
+            //         args: [],
+            //       }
+            //   ]}
+            //   chainId={baseSepolia.id}
+            //   onStatus={(status) => {
+            //     if (status.statusName === 'success') {
+            //       refreshData();
+            //     }
+            //   }}
+            // />
+
+            <button
+              className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-full text-sm font-medium"
+              onClick={() => {
+                handleAwardPrize();
               }}
-            />
+            >
+              Award Prize
+            </button>
           )}
         </div>
       </div>
@@ -816,18 +868,44 @@ Add the following to `components/PrizePoolForm.tsx`:
 
 ```typescript
 // components/PrizePoolForm.tsx
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useBlockchain } from '../contexts/BlockchainContext';
 import { Transaction } from '@coinbase/onchainkit/transaction';
 import { parseEther } from 'viem';
 import { baseSepolia } from 'viem/chains';
 import { MEMORY_MATCH_CONTRACT, MEMORY_MATCH_CONTRACT_ADDRESS } from '../memoryMatchContract';
+import { useWriteContract } from 'wagmi';
+import { waitForTransactionReceipt } from 'wagmi/actions';
+import { config } from '../config';
 
 const PrizePoolForm: React.FC = () => {
   const { prizePool, refreshData } = useBlockchain();
   const [amount, setAmount] = useState('0.01');
   const contractAddress = MEMORY_MATCH_CONTRACT_ADDRESS as `0x${string}`;
-  
+
+  const { writeContractAsync } = useWriteContract()
+
+  const handleContribute = async () => {
+          const result = await writeContractAsync(
+            {
+              address: contractAddress,
+                abi: MEMORY_MATCH_CONTRACT,
+                functionName: 'addToPrizePool',
+                args: [],
+                value: BigInt(parseEther(amount).toString()),
+            }
+          );
+      
+          await waitForTransactionReceipt(config, {
+            hash: result as `0x${string}`,
+          })
+            .then(async () => {
+              await refreshData()
+            })
+            .catch(() => {
+              console.log("Transaction failed");
+            });
+        }
   // Contract calls for contributing to prize pool
 
   
@@ -857,12 +935,22 @@ const PrizePoolForm: React.FC = () => {
             className="block w-full rounded-md text-blue-600 border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           />
           
-          <Transaction 
+          <button
+            onClick={() => {
+              handleContribute();
+            }}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+          >
+            Contribute
+          </button>
+          {/* {hash && <div>Transaction Hash: {hash}</div>} */}
+
+          {/* <Transaction 
             calls={[
                 {
                   address: contractAddress,
                   abi: MEMORY_MATCH_CONTRACT,
-                  functionName: '0xed88c68e',
+                functionName: 'addToPrizePool',
                   args: [],
                   value: BigInt(parseEther(amount).toString()),
                 }
@@ -873,7 +961,7 @@ const PrizePoolForm: React.FC = () => {
                 refreshData();
               }
             }}
-          />
+          /> */}
         </div>
       </div>
     </div>
@@ -901,6 +989,9 @@ import { useBlockchain } from '../contexts/BlockchainContext';
 import { Transaction } from '@coinbase/onchainkit/transaction';
 import { baseSepolia } from 'viem/chains';
 import { MEMORY_MATCH_CONTRACT, MEMORY_MATCH_CONTRACT_ADDRESS } from '../memoryMatchContract';
+import { useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
+import { waitForTransactionReceipt } from "@wagmi/core";
+import { config } from '../config';
 
 const GameComplete: React.FC = () => {
   const { 
@@ -913,6 +1004,13 @@ const GameComplete: React.FC = () => {
   
   const { address, refreshData } = useBlockchain();
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
+
+
+  const { data: hash, writeContract, isSuccess, writeContractAsync } = useWriteContract()
+  const result = useWaitForTransactionReceipt({
+    hash: hash,
+  })
+  
   
   const contractAddress = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
   
@@ -930,6 +1028,30 @@ const GameComplete: React.FC = () => {
       args: [BigInt(score)],
     }
   ];
+
+  const handleSubmitScore = async () => {
+    const result = await writeContractAsync(
+      {
+        address: contractAddress,
+        abi: MEMORY_MATCH_CONTRACT,
+        functionName: 'submitScore',
+        args: [BigInt(score)],
+      }
+    );
+
+    await waitForTransactionReceipt(config, {
+      hash: result as `0x${string}`,
+    })
+      .then(async () => {
+        await refreshData()
+      })
+      .catch(() => {
+        console.log("Transaction failed");
+      });
+
+  }
+
+
   
   return (
     <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-50">
@@ -956,17 +1078,24 @@ const GameComplete: React.FC = () => {
         
         <div className="flex flex-col gap-2">
           {!scoreSubmitted && address && (
-            <Transaction 
-              calls={scoreSubmitCalls}
-              chainId={baseSepolia.id}
+            // <Transaction 
+            //   calls={scoreSubmitCalls}
+            //   chainId={baseSepolia.id}
             
-              onStatus={(status) => {
-                if (status.statusName === 'success') {
-                  setScoreSubmitted(true);
-                  refreshData();
-                }
-              }}
-            />
+            //   onStatus={(status) => {
+            //     if (status.statusName === 'success') {
+            //       setScoreSubmitted(true);
+            //       refreshData();
+            //     }
+            //   }}
+            // />
+
+            <button
+              onClick={handleSubmitScore}
+              className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700"
+            >
+              Submit Score
+            </button>
           )}
           
           {scoreSubmitted && (
