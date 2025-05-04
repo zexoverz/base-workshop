@@ -28,7 +28,7 @@ First, let's add the necessary dependencies for blockchain integration:
 
 ```bash
 cd memory-match
-npm install @coinbase/onchainkit @tanstack/react-query viem wagmi
+npm install @coinbase/onchainkit @tanstack/react-query viem wagmi react-hot-toast
 ```
 
 
