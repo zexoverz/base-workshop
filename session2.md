@@ -1084,8 +1084,7 @@ import { useBlockchain } from '../contexts/BlockchainContext';
 import { Transaction } from '@coinbase/onchainkit/transaction';
 import { baseSepolia } from 'viem/chains';
 import { MEMORY_MATCH_CONTRACT, MEMORY_MATCH_CONTRACT_ADDRESS } from '../memoryMatchContract';
-import {  useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
-import toast from 'react-hot-toast';
+import {  useAccount,  } from 'wagmi';
 
 const GameComplete: React.FC = () => {
   const { 
@@ -1117,85 +1116,6 @@ const GameComplete: React.FC = () => {
     }
   ];
 
-    // Use wagmi hooks directly
-    const { 
-      data: hash, 
-      isPending, 
-      isError,
-      error,
-      writeContract 
-    } = useWriteContract();
-  
-    // Track transaction receipt
-    const { 
-      isLoading: isConfirming, 
-      isSuccess: isConfirmed 
-    } = useWaitForTransactionReceipt({ 
-      hash,
-    });
-  
-    // Handle contribution
-    const handleSubmitScore = () => {  
-      if (!isConnected) return
-      
-      toast.loading('Preparing transaction...', {
-        style: {
-          background: "#2B2F36",
-          color: "#fff",
-        },
-      });
-  
-      writeContract({
-        address: MEMORY_MATCH_CONTRACT_ADDRESS,
-        abi: MEMORY_MATCH_CONTRACT,
-        functionName: 'submitScore',
-        args: [BigInt(score)],
-      });
-    };
-
-  React.useEffect(() => {
-    if (isPending) {
-      toast.loading('Awaiting wallet confirmation...', {
-        id: 'tx-pending',
-        style: {
-          background: "#2B2F36",
-          color: "#fff",
-        },
-      });
-    }
-    
-    if (isConfirming) {
-      toast.loading('Transaction processing...', {
-        id: 'tx-confirming',
-        style: {
-          background: "#2B2F36",
-          color: "#fff",
-        },
-      });
-    }
-
-    if (isConfirmed) {
-      toast.dismiss();
-      toast.success('Score successfully added!', {
-        style: {
-          background: "#0057ee",
-          color: "#fff",
-        },
-      });
-      setScoreSubmitted(true);
-      refreshData();
-    }
-
-    if (isError) {
-      toast.dismiss();
-      toast.error('Failed to add score', {
-        style: {
-          background: "#0057ee",
-          color: "#fff",
-        },
-      });
-    }
-  }, [isPending, isConfirming, isConfirmed, isError, refreshData]);
 
 
 
@@ -1225,24 +1145,18 @@ const GameComplete: React.FC = () => {
         
         <div className="flex flex-col gap-2">
           {!scoreSubmitted && address && (
-            // <Transaction 
-            //   calls={scoreSubmitCalls}
-            //   chainId={baseSepolia.id}
+            <Transaction 
+              calls={scoreSubmitCalls}
+              chainId={baseSepolia.id}
             
-            //   onStatus={(status) => {
-            //     if (status.statusName === 'success') {
-            //       setScoreSubmitted(true);
-            //       refreshData();
-            //     }
-            //   }}
-            // />
+              onStatus={(status) => {
+                if (status.statusName === 'success') {
+                  setScoreSubmitted(true);
+                  refreshData();
+                }
+              }}
+            />
 
-            <button
-              onClick={handleSubmitScore}
-              className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700"
-            >
-              Submit Score
-            </button>
           )}
           
           {scoreSubmitted && (
@@ -1250,25 +1164,6 @@ const GameComplete: React.FC = () => {
               Score submitted to leaderboard! 🎉
             </div>
           )}
-
-        {(isPending || isConfirming) && (
-                  <div className="mt-2 text-sm text-blue-600">
-                    {isPending ? 'Please confirm the transaction in your wallet...' : 'Transaction is being processed...'}
-                  </div>
-                )}
-
-                {isConfirmed && hash && (
-                  <div className="mt-2 text-sm text-green-600">
-                    Transaction successful!
-                  </div>
-                )}
-
-                {isError && (
-                  <div className="mt-2 text-sm text-red-600">
-                    {error.message}
-                  </div>
-                )}
-          
           <button
             onClick={resetGame}
             className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700"
